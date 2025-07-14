@@ -1,10 +1,10 @@
-# qMSDFgen
+# qmsdfgen
 
 A Qt-based GUI application for generating Multi-channel Signed Distance Fields (MSDF) from vector shapes and SVG files.
 
 ## Overview
 
-qMSDFgen is a user-friendly graphical interface built on top of the [msdfgen](https://github.com/Chlumsky/msdfgen) library. It provides an easy way to convert SVG files into high-quality distance field textures that can be used in real-time graphics applications.
+qmsdfgen is a user-friendly graphical interface built on top of the [msdfgen](https://github.com/Chlumsky/msdfgen) library. It provides an easy way to convert SVG files into high-quality distance field textures that can be used in real-time graphics applications.
 
 Unlike conventional monochrome distance fields, multi-channel distance fields utilize all three color channels (RGB) to reproduce sharp corners and fine details with superior quality, making them ideal for text rendering and vector graphics in games and real-time applications.
 
@@ -35,7 +35,7 @@ This project uses qmake as the build system. To build the application:
 
 3. Build the project:
    ```bash
-   qmake qMSDFgen.pro
+   qmake qmsdfgen.pro
    make
    ```
 
@@ -43,7 +43,7 @@ This project uses qmake as the build system. To build the application:
 
 ## Usage
 
-1. Launch the qMSDFgen application
+1. Launch the qmsdfgen application
 2. Click "Browse input" to select an SVG file
 3. Click "Browse output" to specify the output PNG file path
 4. Click "Save" to generate the distance field texture
@@ -62,8 +62,8 @@ Multi-channel Signed Distance Fields (MSDF) represent a significant improvement 
 ### Project Structure
 
 ```
-qMSDFgen/
-├── src/                    # Qt GUI application source code
+qmsdfgen/
+├── src/                   # Qt GUI application source code
 │   ├── main.cpp           # Application entry point
 │   ├── MainWindow.cpp     # Main window implementation
 │   ├── MainWindow.h       # Main window header
