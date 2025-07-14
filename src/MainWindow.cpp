@@ -121,6 +121,7 @@ int msdfmain(int argc, const char *const *argv);
 
 QImage render_msdf_image(QImage const &msdfimage, QSize size)
 {
+	if (msdfimage.isNull()) return {};
 	int w = size.width();
 	int h = size.height();
 	QImage src = msdfimage.convertToFormat(QImage::Format_RGBA8888);
@@ -188,7 +189,7 @@ void MainWindow::on_pushButton_save_clicked()
 	QSize sz = ui->widget_view->size();
 
 	QImage image(dstpath);
-	image = render_msdf_image(image, sz);
+	// image = render_msdf_image(image, sz);
 	ui->widget_view->setImage(image);
 }
 

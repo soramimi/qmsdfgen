@@ -9,8 +9,15 @@ DEFINES += MSDFGEN_STANDALONE
 INCLUDEPATH += $$PWD/src
 INCLUDEPATH += $$PWD/msdfgen
 INCLUDEPATH += $$PWD/config
-INCLUDEPATH += /usr/include/freetype2
-LIBS += -lpng -lfreetype -ltinyxml2
+!msvc:INCLUDEPATH += /usr/include/freetype2
+msvc:INCLUDEPATH += C:/vcpkg/packages/libpng_x64-windows/include
+msvc:INCLUDEPATH += C:/vcpkg/packages/tinyxml2_x64-windows/include
+msvc:INCLUDEPATH += C:/vcpkg/packages/freetype_x64-windows/include
+msvc:LIBS += -LC:/vcpkg/packages/libpng_x64-windows/lib -llibpng16
+msvc:LIBS += -LC:/vcpkg/packages/freetype_x64-windows/lib -lfreetype
+msvc:LIBS += -LC:/vcpkg/packages/tinyxml2_x64-windows/lib -ltinyxml2
+!msvc:LIBS += -lpng
+LIBS += -lfreetype -ltinyxml2
 
 # Input
 HEADERS += msdfgen/msdfgen-ext.h \
