@@ -25,7 +25,7 @@ MainWindow::~MainWindow()
 void MainWindow::on_pushButton_browse_input_clicked()
 {
 	QString path;
-	path = QFileDialog::getOpenFileName(this, tr("Input file"), path);
+	path = QFileDialog::getOpenFileName(this, tr("Input file"), path, "SVG files (*.svg);;All files (*.*)");
 	if (!path.isEmpty()) {
 		ui->lineEdit_input->setText(path);
 	}
@@ -35,7 +35,7 @@ void MainWindow::on_pushButton_browse_input_clicked()
 void MainWindow::on_pushButton_browse_output_clicked()
 {
 	QString path;
-	path = QFileDialog::getSaveFileName(this, tr("Output file"), path);
+	path = QFileDialog::getSaveFileName(this, tr("Output file"), path, "PNG files (*.png);;All files (*.*)");
 	if (!path.isEmpty()) {
 		ui->lineEdit_output->setText(path);
 	}
