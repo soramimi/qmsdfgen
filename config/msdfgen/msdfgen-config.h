@@ -1,0 +1,5 @@
+#pragma once
+
+#define MSDFGEN_EXTENSIONS
+#define MSDFGEN_USE_LIBPNG
+#define MSDFGEN_USE_TINYXML2
