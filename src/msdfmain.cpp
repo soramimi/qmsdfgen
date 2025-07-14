@@ -35,7 +35,7 @@
 
 using namespace msdfgen;
 
-enum Format {
+enum class Format {
 	AUTO,
 	PNG,
 	BMP,
@@ -50,7 +50,7 @@ enum Format {
 };
 
 static bool is8bitFormat(Format format) {
-	return format == PNG || format == BMP || format == RGBA || format == TEXT || format == BINARY;
+	return format == Format::PNG || format == Format::BMP || format == Format::RGBA || format == Format::TEXT || format == Format::BINARY;
 }
 
 static char toupper(char c) {
@@ -256,48 +256,53 @@ static bool cmpExtension(const char *path, const char *ext) {
 template <int N>
 static const char *writeOutput(const BitmapConstRef<float, N> &bitmap, const char *filename, Format &format) {
 	if (filename) {
-		if (format == AUTO) {
+		if (format == Format::AUTO) {
 #if defined(MSDFGEN_EXTENSIONS) && !defined(MSDFGEN_DISABLE_PNG)
-			if (cmpExtension(filename, ".png")) format = PNG;
+			if (cmpExtension(filename, ".png")) format = Format::PNG;
 #else
 			if (cmpExtension(filename, ".png"))
 				return "PNG format is not available in core-only version.";
 #endif
-			else if (cmpExtension(filename, ".bmp")) format = BMP;
-			else if (cmpExtension(filename, ".tiff") || cmpExtension(filename, ".tif")) format = TIFF;
-			else if (cmpExtension(filename, ".rgba")) format = RGBA;
-			else if (cmpExtension(filename, ".fl32")) format = FL32;
-			else if (cmpExtension(filename, ".txt")) format = TEXT;
-			else if (cmpExtension(filename, ".bin")) format = BINARY;
+			else if (cmpExtension(filename, ".bmp")) format = Format::BMP;
+			else if (cmpExtension(filename, ".tiff") || cmpExtension(filename, ".tif")) format = Format::TIFF;
+			else if (cmpExtension(filename, ".rgba")) format = Format::RGBA;
+			else if (cmpExtension(filename, ".fl32")) format = Format::FL32;
+			else if (cmpExtension(filename, ".txt")) format = Format::TEXT;
+			else if (cmpExtension(filename, ".bin")) format = Format::BINARY;
 			else
 				return "Could not deduce format from output file name.";
 		}
 		switch (format) {
 #if defined(MSDFGEN_EXTENSIONS) && !defined(MSDFGEN_DISABLE_PNG)
-		case PNG: return savePng(bitmap, filename) ? NULL : "Failed to write output PNG image.";
+		case Format::PNG: return savePng(bitmap, filename) ? NULL : "Failed to write output PNG image.";
 #endif
-		case BMP: return saveBmp(bitmap, filename) ? NULL : "Failed to write output BMP image.";
-		case TIFF: return saveTiff(bitmap, filename) ? NULL : "Failed to write output TIFF image.";
-		case RGBA: return saveRgba(bitmap, filename) ? NULL : "Failed to write output RGBA image.";
-		case FL32: return saveFl32(bitmap, filename) ? NULL : "Failed to write output FL32 image.";
-		case TEXT: case TEXT_FLOAT: {
+		case Format::BMP: return saveBmp(bitmap, filename) ? NULL : "Failed to write output BMP image.";
+		case Format::TIFF: return saveTiff(bitmap, filename) ? NULL : "Failed to write output TIFF image.";
+		case Format::RGBA: return saveRgba(bitmap, filename) ? NULL : "Failed to write output RGBA image.";
+		case Format::FL32: return saveFl32(bitmap, filename) ? NULL : "Failed to write output FL32 image.";
+		case Format::TEXT:
+		case Format::TEXT_FLOAT:
+			{
 				FILE *file = fopen(filename, "w");
 				if (!file) return "Failed to write output text file.";
-				if (format == TEXT)
+				if (format == Format::TEXT)
 					writeTextBitmap(file, bitmap.pixels, N*bitmap.width, bitmap.height);
-				else if (format == TEXT_FLOAT)
+				else if (format == Format::TEXT_FLOAT)
 					writeTextBitmapFloat(file, bitmap.pixels, N*bitmap.width, bitmap.height);
 				fclose(file);
 				return NULL;
 			}
-		case BINARY: case BINARY_FLOAT: case BINARY_FLOAT_BE: {
+		case Format::BINARY:
+		case Format::BINARY_FLOAT:
+		case Format::BINARY_FLOAT_BE:
+			{
 				FILE *file = fopen(filename, "wb");
 				if (!file) return "Failed to write output binary file.";
-				if (format == BINARY)
+				if (format == Format::BINARY)
 					writeBinBitmap(file, bitmap.pixels, N*bitmap.width*bitmap.height);
-				else if (format == BINARY_FLOAT)
+				else if (format == Format::BINARY_FLOAT)
 					writeBinBitmapFloat(file, bitmap.pixels, N*bitmap.width*bitmap.height);
-				else if (format == BINARY_FLOAT_BE)
+				else if (format == Format::BINARY_FLOAT_BE)
 					writeBinBitmapFloatBE(file, bitmap.pixels, N*bitmap.width*bitmap.height);
 				fclose(file);
 				return NULL;
@@ -305,9 +310,9 @@ static const char *writeOutput(const BitmapConstRef<float, N> &bitmap, const cha
 		default:;
 		}
 	} else {
-		if (format == AUTO || format == TEXT)
+		if (format == Format::AUTO || format == Format::TEXT)
 			writeTextBitmap(stdout, bitmap.pixels, N*bitmap.width, bitmap.height);
-		else if (format == TEXT_FLOAT)
+		else if (format == Format::TEXT_FLOAT)
 			writeTextBitmapFloat(stdout, bitmap.pixels, N*bitmap.width, bitmap.height);
 		else
 			return "Unsupported format for standard output.";
@@ -515,154 +520,175 @@ static const char *errorCorrectionHelpText =
 		"\tDisplays this help.\n"
 		"\n";
 
-int msdfmain(int argc, const char *const *argv)
+QImage msdfmain(Options const &opts)
 {
-#define ABORT(msg) do { fputs(msg "\n", stderr); return 1; } while (false)
+#define ABORT(msg) do { fputs(msg "\n", stderr); return {}; } while (false)
 
-	// Parse command line arguments
-	enum {
-		NONE,
-		SVG,
-		FONT,
-		VAR_FONT,
-		DESCRIPTION_ARG,
-		DESCRIPTION_STDIN,
-		DESCRIPTION_FILE
-	} inputType = NONE;
-	enum {
-		SINGLE,
-		PERPENDICULAR,
-		MULTI,
-		MULTI_AND_TRUE,
-		METRICS
-	} mode = MULTI;
-	enum {
-		NO_PREPROCESS,
-		WINDING_PREPROCESS,
-		FULL_PREPROCESS
-	} geometryPreproc = (
-			#ifdef MSDFGEN_USE_SKIA
-				FULL_PREPROCESS
-			#else
-				NO_PREPROCESS
-			#endif
-				);
-	bool legacyMode = false;
-	MSDFGeneratorConfig generatorConfig;
-	generatorConfig.overlapSupport = geometryPreproc == NO_PREPROCESS;
-	bool scanlinePass = geometryPreproc == NO_PREPROCESS;
-	FillRule fillRule = FILL_NONZERO;
-	Format format = AUTO;
-	const char *input = NULL;
-	const char *output = "output." DEFAULT_IMAGE_EXTENSION;
-	const char *shapeExport = NULL;
-	const char *svgExport = NULL;
-	const char *testRender = NULL;
-	const char *testRenderMulti = NULL;
-	bool outputSpecified = false;
-#ifdef MSDFGEN_EXTENSIONS
-	bool glyphIndexSpecified = false;
-	GlyphIndex glyphIndex;
-	unicode_t unicode = 0;
-	FontCoordinateScaling fontCoordinateScaling = FONT_SCALING_LEGACY;
-	bool fontCoordinateScalingSpecified = false;
+	struct InternalOptions {
+		enum {
+			NONE,
+			SVG,
+			FONT,
+			VAR_FONT,
+			DESCRIPTION_ARG,
+			DESCRIPTION_STDIN,
+			DESCRIPTION_FILE
+		} inputType = InternalOptions::SVG;
+
+		enum {
+			SINGLE,
+			PERPENDICULAR,
+			MULTI,
+			MULTI_AND_TRUE,
+			METRICS
+		} mode = MULTI;
+
+		enum {
+			NO_PREPROCESS,
+			WINDING_PREPROCESS,
+			FULL_PREPROCESS
+		} geometryPreproc =
+#ifdef MSDFGEN_USE_SKIA
+		FULL_PREPROCESS;
+#else
+		NO_PREPROCESS;
 #endif
 
-	int width = 64, height = 64;
-	int testWidth = 0, testHeight = 0;
-	int testWidthM = 0, testHeightM = 0;
-	bool autoFrame = false;
-	enum {
-		RANGE_UNIT,
-		RANGE_PX
-	} rangeMode = RANGE_PX;
-	Range range(1);
-	Range pxRange(2);
-	Vector2 translate;
-	Vector2 scale = 1;
-	bool scaleSpecified = false;
-	double angleThreshold = DEFAULT_ANGLE_THRESHOLD;
-	float outputDistanceShift = 0.f;
-	const char *edgeAssignment = NULL;
-	bool yFlip = false;
-	bool printMetrics = false;
-	bool estimateError = false;
-	bool skipColoring = false;
-	enum {
-		KEEP,
-		REVERSE,
-		GUESS
-	} orientation = KEEP;
-	unsigned long long coloringSeed = 0;
-	void (*edgeColoring)(Shape &, double, unsigned long long) = &edgeColoringSimple;
-	bool explicitErrorCorrectionMode = false;
+		bool legacyMode = false;
+		MSDFGeneratorConfig generatorConfig;
+		bool scanlinePass = geometryPreproc == InternalOptions::NO_PREPROCESS;
+		FillRule fillRule = FILL_NONZERO;
+		Format format = Format::AUTO;
+		const char *input = NULL;
+		const char *output = "output." DEFAULT_IMAGE_EXTENSION;
+		const char *shapeExport = NULL;
+		const char *svgExport = NULL;
+		const char *testRender = NULL;
+		const char *testRenderMulti = NULL;
+		bool outputSpecified = false;
+#ifdef MSDFGEN_EXTENSIONS
+		bool glyphIndexSpecified = false;
+		GlyphIndex glyphIndex;
+		unicode_t unicode = 0;
+		FontCoordinateScaling fontCoordinateScaling = FONT_SCALING_LEGACY;
+		bool fontCoordinateScalingSpecified = false;
+#endif
 
+		int width = 64;
+		int height = 64;
+		int testWidth = 0;
+		int testHeight = 0;
+		int testWidthM = 0;
+		int testHeightM = 0;
+
+		bool autoFrame = false;
+
+		enum {
+			RANGE_UNIT,
+			RANGE_PX
+		} rangeMode = RANGE_PX;
+
+		Range range = 1;
+		Range pxRange = 2;
+		Vector2 translate;
+		Vector2 scale = 1;
+		bool scaleSpecified = false;
+		double angleThreshold = DEFAULT_ANGLE_THRESHOLD;
+		float outputDistanceShift = 0.f;
+		const char *edgeAssignment = NULL;
+		bool yFlip = false;
+		bool printMetrics = false;
+		bool estimateError = false;
+		bool skipColoring = false;
+		enum {
+			KEEP,
+			REVERSE,
+			GUESS
+		} orientation = KEEP;
+
+		unsigned long long coloringSeed = 0;
+		void (*edgeColoring)(Shape &, double, unsigned long long) = &edgeColoringSimple;
+		bool explicitErrorCorrectionMode = false;
+	} opts2;
+
+	opts2.input = opts.input_file.c_str();
+	opts2.format = Format::PNG;
+	opts2.outputSpecified = true;
+
+	opts2.width = opts.width;
+	opts2.height = opts.height;
+	opts2.autoFrame = true;
+
+	opts2.generatorConfig.overlapSupport = (opts2.geometryPreproc == InternalOptions::NO_PREPROCESS);
+
+#if 0
+	// parse command line options
 	int argPos = 1;
 	bool suggestHelp = false;
 	while (argPos < argc) {
 		const char *arg = argv[argPos];
 #define ARG_CASE(s, p) if ((!strcmp(arg, s)) && argPos+(p) < argc && (++argPos, true))
 #define ARG_CASE_OR ) || !strcmp(arg,
-#define ARG_MODE(s, m) if (!strcmp(arg, s)) { mode = m; ++argPos; continue; }
+#define ARG_MODE(s, m) if (!strcmp(arg, s)) { opts.mode = m; ++argPos; continue; }
 #define ARG_IS(s) (!strcmp(argv[argPos], s))
-#define SET_FORMAT(fmt, ext) do { format = fmt; if (!outputSpecified) output = "output." ext; } while (false)
+#define SET_FORMAT(fmt, ext) do { opts.format = fmt; if (!opts.outputSpecified) opts.output = "output." ext; } while (false)
 
 		// Accept arguments prefixed with -- instead of -
 		if (arg[0] == '-' && arg[1] == '-')
 			++arg;
 
-		ARG_MODE("sdf", SINGLE)
-				ARG_MODE("psdf", PERPENDICULAR)
-				ARG_MODE("msdf", MULTI)
-				ARG_MODE("mtsdf", MULTI_AND_TRUE)
-				ARG_MODE("metrics", METRICS)
+		ARG_MODE("sdf", InternalOptions::SINGLE)
+				ARG_MODE("psdf", InternalOptions::PERPENDICULAR)
+				ARG_MODE("msdf", InternalOptions::MULTI)
+				ARG_MODE("mtsdf", InternalOptions::MULTI_AND_TRUE)
+				ARG_MODE("metrics", InternalOptions::METRICS)
 
 		#if defined(MSDFGEN_EXTENSIONS) && !defined(MSDFGEN_DISABLE_SVG)
 				ARG_CASE("-svg", 1) {
-			inputType = SVG;
-			input = argv[argPos++];
+			opts.inputType = InternalOptions::SVG;
+			opts.input = argv[argPos++];
 			continue;
 		}
 #endif
 #ifdef MSDFGEN_EXTENSIONS
 		//ARG_CASE -font, -varfont
 		if (argPos+2 < argc && (
-					(!strcmp(arg, "-font") && (inputType = FONT, true))
+					(!strcmp(arg, "-font") && (opts.inputType = InternalOptions::FONT, true))
 			#ifndef MSDFGEN_DISABLE_VARIABLE_FONTS
-					|| (!strcmp(arg, "-varfont") && (inputType = VAR_FONT, true))
+					|| (!strcmp(arg, "-varfont") && (opts.inputType = InternalOptions::VAR_FONT, true))
 			#endif
 					) && (++argPos, true)) {
-			input = argv[argPos++];
+			opts.input = argv[argPos++];
 			const char *charArg = argv[argPos++];
 			unsigned gi;
 			switch (charArg[0]) {
 			case 'G': case 'g':
 				if (parseUnsignedDecOrHex(gi, charArg+1)) {
-					glyphIndex = GlyphIndex(gi);
-					glyphIndexSpecified = true;
+					opts.glyphIndex = GlyphIndex(gi);
+					opts.glyphIndexSpecified = true;
 				}
 				break;
 			case 'U': case 'u':
 				++charArg;
 				// fallthrough
 			default:
-				parseUnicode(unicode, charArg);
+				parseUnicode(opts.unicode, charArg);
 			}
 			continue;
 		}
 		ARG_CASE("-noemnormalize", 0) {
-			fontCoordinateScaling = FONT_SCALING_NONE;
-			fontCoordinateScalingSpecified = true;
+			opts.fontCoordinateScaling = FONT_SCALING_NONE;
+			opts.fontCoordinateScalingSpecified = true;
 			continue;
 		}
 		ARG_CASE("-emnormalize", 0) {
-			fontCoordinateScaling = FONT_SCALING_EM_NORMALIZED;
-			fontCoordinateScalingSpecified = true;
+			opts.fontCoordinateScaling = FONT_SCALING_EM_NORMALIZED;
+			opts.fontCoordinateScalingSpecified = true;
 			continue;
 		}
 		ARG_CASE("-legacyfontscaling", 0) {
-			fontCoordinateScaling = FONT_SCALING_LEGACY;
-			fontCoordinateScalingSpecified = true;
+			opts.fontCoordinateScaling = FONT_SCALING_LEGACY;
+			opts.fontCoordinateScalingSpecified = true;
 			continue;
 		}
 #else
@@ -677,78 +703,78 @@ int msdfmain(int argc, const char *const *argv)
 		}
 #endif
 		ARG_CASE("-defineshape", 1) {
-			inputType = DESCRIPTION_ARG;
-			input = argv[argPos++];
+			opts.inputType = InternalOptions::DESCRIPTION_ARG;
+			opts.input = argv[argPos++];
 			continue;
 		}
 		ARG_CASE("-stdin", 0) {
-			inputType = DESCRIPTION_STDIN;
-			input = "stdin";
+			opts.inputType = InternalOptions::DESCRIPTION_STDIN;
+			opts.input = "stdin";
 			continue;
 		}
 		ARG_CASE("-shapedesc", 1) {
-			inputType = DESCRIPTION_FILE;
-			input = argv[argPos++];
+			opts.inputType = InternalOptions::DESCRIPTION_FILE;
+			opts.input = argv[argPos++];
 			continue;
 		}
 		ARG_CASE("-o" ARG_CASE_OR "-out" ARG_CASE_OR "-output" ARG_CASE_OR "-imageout", 1) {
-			output = argv[argPos++];
-			outputSpecified = true;
+			opts.output = argv[argPos++];
+			opts.outputSpecified = true;
 			continue;
 		}
 		ARG_CASE("-stdout", 0) {
-			output = NULL;
+			opts.output = NULL;
 			continue;
 		}
 		ARG_CASE("-legacy", 0) {
-			legacyMode = true;
+			opts.legacyMode = true;
 #ifdef MSDFGEN_EXTENSIONS
-			fontCoordinateScaling = FONT_SCALING_LEGACY;
-			fontCoordinateScalingSpecified = true;
+			opts.fontCoordinateScaling = FONT_SCALING_LEGACY;
+			opts.fontCoordinateScalingSpecified = true;
 #endif
 			continue;
 		}
 		ARG_CASE("-nopreprocess", 0) {
-			geometryPreproc = NO_PREPROCESS;
+			opts.geometryPreproc = InternalOptions::NO_PREPROCESS;
 			continue;
 		}
 		ARG_CASE("-windingpreprocess", 0) {
-			geometryPreproc = WINDING_PREPROCESS;
+			opts.geometryPreproc = InternalOptions::WINDING_PREPROCESS;
 			continue;
 		}
 		ARG_CASE("-preprocess", 0) {
-			geometryPreproc = FULL_PREPROCESS;
+			opts.geometryPreproc = InternalOptions::FULL_PREPROCESS;
 			continue;
 		}
 		ARG_CASE("-nooverlap", 0) {
-			generatorConfig.overlapSupport = false;
+			opts.generatorConfig.overlapSupport = false;
 			continue;
 		}
 		ARG_CASE("-overlap", 0) {
-			generatorConfig.overlapSupport = true;
+			opts.generatorConfig.overlapSupport = true;
 			continue;
 		}
 		ARG_CASE("-noscanline", 0) {
-			scanlinePass = false;
+			opts.scanlinePass = false;
 			continue;
 		}
 		ARG_CASE("-scanline", 0) {
-			scanlinePass = true;
+			opts.scanlinePass = true;
 			continue;
 		}
 		ARG_CASE("-fillrule", 1) {
-			scanlinePass = true;
-			if (ARG_IS("nonzero")) fillRule = FILL_NONZERO;
-			else if (ARG_IS("evenodd") || ARG_IS("odd")) fillRule = FILL_ODD;
-			else if (ARG_IS("positive")) fillRule = FILL_POSITIVE;
-			else if (ARG_IS("negative")) fillRule = FILL_NEGATIVE;
+			opts.scanlinePass = true;
+			if (ARG_IS("nonzero")) opts.fillRule = FILL_NONZERO;
+			else if (ARG_IS("evenodd") || ARG_IS("odd")) opts.fillRule = FILL_ODD;
+			else if (ARG_IS("positive")) opts.fillRule = FILL_POSITIVE;
+			else if (ARG_IS("negative")) opts.fillRule = FILL_NEGATIVE;
 			else
 				fputs("Unknown fill rule specified.\n", stderr);
 			++argPos;
 			continue;
 		}
 		ARG_CASE("-format", 1) {
-			if (ARG_IS("auto")) format = AUTO;
+			if (ARG_IS("auto")) opts.format = AUTO;
 #if defined(MSDFGEN_EXTENSIONS) && !defined(MSDFGEN_DISABLE_PNG)
 			else if (ARG_IS("png")) SET_FORMAT(PNG, "png");
 #else
@@ -773,11 +799,11 @@ int msdfmain(int argc, const char *const *argv)
 			unsigned w, h;
 			if (!(parseUnsigned(w, argv[argPos++]) && parseUnsigned(h, argv[argPos++]) && w && h))
 				ABORT("Invalid dimensions. Use -dimensions <width> <height> with two positive integers.");
-			width = w, height = h;
+			opts.width = w, opts.height = h;
 			continue;
 		}
 		ARG_CASE("-autoframe", 0) {
-			autoFrame = true;
+			opts.autoFrame = true;
 			continue;
 		}
 		ARG_CASE("-range" ARG_CASE_OR "-unitrange", 1) {
@@ -786,8 +812,8 @@ int msdfmain(int argc, const char *const *argv)
 				ABORT("Invalid range argument. Use -range <range> with a real number.");
 			if (r == 0)
 				ABORT("Range must be non-zero.");
-			rangeMode = RANGE_UNIT;
-			range = Range(r);
+			opts.rangeMode = InternalOptions::RANGE_UNIT;
+			opts.range = Range(r);
 			continue;
 		}
 		ARG_CASE("-pxrange", 1) {
@@ -796,8 +822,8 @@ int msdfmain(int argc, const char *const *argv)
 				ABORT("Invalid range argument. Use -pxrange <range> with a real number.");
 			if (r == 0)
 				ABORT("Range must be non-zero.");
-			rangeMode = RANGE_PX;
-			pxRange = Range(r);
+			opts.rangeMode = InternalOptions::RANGE_PX;
+			opts.pxRange = Range(r);
 			continue;
 		}
 		ARG_CASE("-arange" ARG_CASE_OR "-aunitrange", 2) {
@@ -806,8 +832,8 @@ int msdfmain(int argc, const char *const *argv)
 				ABORT("Invalid range arguments. Use -arange <minimum> <maximum> with two real numbers.");
 			if (r0 == r1)
 				ABORT("Range must be non-empty.");
-			rangeMode = RANGE_UNIT;
-			range = Range(r0, r1);
+			opts.rangeMode = InternalOptions::RANGE_UNIT;
+			opts.range = Range(r0, r1);
 			continue;
 		}
 		ARG_CASE("-apxrange", 2) {
@@ -816,92 +842,92 @@ int msdfmain(int argc, const char *const *argv)
 				ABORT("Invalid range arguments. Use -apxrange <minimum> <maximum> with two real numbers.");
 			if (r0 == r1)
 				ABORT("Range must be non-empty.");
-			rangeMode = RANGE_PX;
-			pxRange = Range(r0, r1);
+			opts.rangeMode = InternalOptions::RANGE_PX;
+			opts.pxRange = Range(r0, r1);
 			continue;
 		}
 		ARG_CASE("-scale", 1) {
 			double s;
 			if (!(parseDouble(s, argv[argPos++]) && s > 0))
 				ABORT("Invalid scale argument. Use -scale <scale> with a positive real number.");
-			scale = s;
-			scaleSpecified = true;
+			opts.scale = s;
+			opts.scaleSpecified = true;
 			continue;
 		}
 		ARG_CASE("-ascale", 2) {
 			double sx, sy;
 			if (!(parseDouble(sx, argv[argPos++]) && parseDouble(sy, argv[argPos++]) && sx > 0 && sy > 0))
 				ABORT("Invalid scale arguments. Use -ascale <x> <y> with two positive real numbers.");
-			scale.set(sx, sy);
-			scaleSpecified = true;
+			opts.scale.set(sx, sy);
+			opts.scaleSpecified = true;
 			continue;
 		}
 		ARG_CASE("-translate", 2) {
 			double tx, ty;
 			if (!(parseDouble(tx, argv[argPos++]) && parseDouble(ty, argv[argPos++])))
 				ABORT("Invalid translate arguments. Use -translate <x> <y> with two real numbers.");
-			translate.set(tx, ty);
+			opts.translate.set(tx, ty);
 			continue;
 		}
 		ARG_CASE("-angle", 1) {
 			double at;
 			if (!parseAngle(at, argv[argPos++]))
 				ABORT("Invalid angle threshold. Use -angle <min angle> with a positive real number less than PI or a value in degrees followed by 'd' below 180d.");
-			angleThreshold = at;
+			opts.angleThreshold = at;
 			continue;
 		}
 		ARG_CASE("-errorcorrection", 1) {
 			if (ARG_IS("disable") || ARG_IS("disabled") || ARG_IS("0") || ARG_IS("none") || ARG_IS("false")) {
-				generatorConfig.errorCorrection.mode = ErrorCorrectionConfig::DISABLED;
-				generatorConfig.errorCorrection.distanceCheckMode = ErrorCorrectionConfig::DO_NOT_CHECK_DISTANCE;
+				opts.generatorConfig.errorCorrection.mode = ErrorCorrectionConfig::DISABLED;
+				opts.generatorConfig.errorCorrection.distanceCheckMode = ErrorCorrectionConfig::DO_NOT_CHECK_DISTANCE;
 			} else if (ARG_IS("default") || ARG_IS("auto") || ARG_IS("auto-mixed") || ARG_IS("mixed")) {
-				generatorConfig.errorCorrection.mode = ErrorCorrectionConfig::EDGE_PRIORITY;
-				generatorConfig.errorCorrection.distanceCheckMode = ErrorCorrectionConfig::CHECK_DISTANCE_AT_EDGE;
+				opts.generatorConfig.errorCorrection.mode = ErrorCorrectionConfig::EDGE_PRIORITY;
+				opts.generatorConfig.errorCorrection.distanceCheckMode = ErrorCorrectionConfig::CHECK_DISTANCE_AT_EDGE;
 			} else if (ARG_IS("auto-fast") || ARG_IS("fast")) {
-				generatorConfig.errorCorrection.mode = ErrorCorrectionConfig::EDGE_PRIORITY;
-				generatorConfig.errorCorrection.distanceCheckMode = ErrorCorrectionConfig::DO_NOT_CHECK_DISTANCE;
+				opts.generatorConfig.errorCorrection.mode = ErrorCorrectionConfig::EDGE_PRIORITY;
+				opts.generatorConfig.errorCorrection.distanceCheckMode = ErrorCorrectionConfig::DO_NOT_CHECK_DISTANCE;
 			} else if (ARG_IS("auto-full") || ARG_IS("full")) {
-				generatorConfig.errorCorrection.mode = ErrorCorrectionConfig::EDGE_PRIORITY;
-				generatorConfig.errorCorrection.distanceCheckMode = ErrorCorrectionConfig::ALWAYS_CHECK_DISTANCE;
+				opts.generatorConfig.errorCorrection.mode = ErrorCorrectionConfig::EDGE_PRIORITY;
+				opts.generatorConfig.errorCorrection.distanceCheckMode = ErrorCorrectionConfig::ALWAYS_CHECK_DISTANCE;
 			} else if (ARG_IS("distance") || ARG_IS("distance-fast") || ARG_IS("indiscriminate") || ARG_IS("indiscriminate-fast")) {
-				generatorConfig.errorCorrection.mode = ErrorCorrectionConfig::INDISCRIMINATE;
-				generatorConfig.errorCorrection.distanceCheckMode = ErrorCorrectionConfig::DO_NOT_CHECK_DISTANCE;
+				opts.generatorConfig.errorCorrection.mode = ErrorCorrectionConfig::INDISCRIMINATE;
+				opts.generatorConfig.errorCorrection.distanceCheckMode = ErrorCorrectionConfig::DO_NOT_CHECK_DISTANCE;
 			} else if (ARG_IS("distance-full") || ARG_IS("indiscriminate-full")) {
-				generatorConfig.errorCorrection.mode = ErrorCorrectionConfig::INDISCRIMINATE;
-				generatorConfig.errorCorrection.distanceCheckMode = ErrorCorrectionConfig::ALWAYS_CHECK_DISTANCE;
+				opts.generatorConfig.errorCorrection.mode = ErrorCorrectionConfig::INDISCRIMINATE;
+				opts.generatorConfig.errorCorrection.distanceCheckMode = ErrorCorrectionConfig::ALWAYS_CHECK_DISTANCE;
 			} else if (ARG_IS("edge-fast")) {
-				generatorConfig.errorCorrection.mode = ErrorCorrectionConfig::EDGE_ONLY;
-				generatorConfig.errorCorrection.distanceCheckMode = ErrorCorrectionConfig::DO_NOT_CHECK_DISTANCE;
+				opts.generatorConfig.errorCorrection.mode = ErrorCorrectionConfig::EDGE_ONLY;
+				opts.generatorConfig.errorCorrection.distanceCheckMode = ErrorCorrectionConfig::DO_NOT_CHECK_DISTANCE;
 			} else if (ARG_IS("edge") || ARG_IS("edge-full")) {
-				generatorConfig.errorCorrection.mode = ErrorCorrectionConfig::EDGE_ONLY;
-				generatorConfig.errorCorrection.distanceCheckMode = ErrorCorrectionConfig::ALWAYS_CHECK_DISTANCE;
+				opts.generatorConfig.errorCorrection.mode = ErrorCorrectionConfig::EDGE_ONLY;
+				opts.generatorConfig.errorCorrection.distanceCheckMode = ErrorCorrectionConfig::ALWAYS_CHECK_DISTANCE;
 			} else if (ARG_IS("help")) {
 				puts(errorCorrectionHelpText);
 				return 0;
 			} else
 				fputs("Unknown error correction mode. Use -errorcorrection help for more information.\n", stderr);
 			++argPos;
-			explicitErrorCorrectionMode = true;
+			opts.explicitErrorCorrectionMode = true;
 			continue;
 		}
 		ARG_CASE("-errordeviationratio", 1) {
 			double edr;
 			if (!(parseDouble(edr, argv[argPos++]) && edr > 0))
 				ABORT("Invalid error deviation ratio. Use -errordeviationratio <ratio> with a positive real number.");
-			generatorConfig.errorCorrection.minDeviationRatio = edr;
+			opts.generatorConfig.errorCorrection.minDeviationRatio = edr;
 			continue;
 		}
 		ARG_CASE("-errorimproveratio", 1) {
 			double eir;
 			if (!(parseDouble(eir, argv[argPos++]) && eir > 0))
 				ABORT("Invalid error improvement ratio. Use -errorimproveratio <ratio> with a positive real number.");
-			generatorConfig.errorCorrection.minImproveRatio = eir;
+			opts.generatorConfig.errorCorrection.minImproveRatio = eir;
 			continue;
 		}
 		ARG_CASE("-coloringstrategy" ARG_CASE_OR "-edgecoloring", 1) {
-			if (ARG_IS("simple")) edgeColoring = &edgeColoringSimple;
-			else if (ARG_IS("inktrap")) edgeColoring = &edgeColoringInkTrap;
-			else if (ARG_IS("distance")) edgeColoring = &edgeColoringByDistance;
+			if (ARG_IS("simple")) opts.edgeColoring = &edgeColoringSimple;
+			else if (ARG_IS("inktrap")) opts.edgeColoring = &edgeColoringInkTrap;
+			else if (ARG_IS("distance")) opts.edgeColoring = &edgeColoringByDistance;
 			else
 				fputs("Unknown coloring strategy specified.\n", stderr);
 			++argPos;
@@ -916,66 +942,68 @@ int msdfmain(int argc, const char *const *argv)
 				ABORT("Invalid edge coloring sequence. Use -edgecolors <color sequence> with only the colors C, M, Y, and W. Separate contours by commas and use ? to keep the default assigment for a contour.");
 EDGE_COLOR_VERIFIED:;
 			}
-			edgeAssignment = argv[argPos++];
+			opts.edgeAssignment = argv[argPos++];
 			continue;
 		}
 		ARG_CASE("-distanceshift", 1) {
 			double ds;
 			if (!parseDouble(ds, argv[argPos++]))
 				ABORT("Invalid distance shift. Use -distanceshift <shift> with a real value.");
-			outputDistanceShift = (float) ds;
+			opts.outputDistanceShift = (float) ds;
 			continue;
 		}
 		ARG_CASE("-exportshape", 1) {
-			shapeExport = argv[argPos++];
+			opts.shapeExport = argv[argPos++];
 			continue;
 		}
 		ARG_CASE("-exportsvg", 1) {
-			svgExport = argv[argPos++];
+			opts.svgExport = argv[argPos++];
 			continue;
 		}
 		ARG_CASE("-testrender", 3) {
 			unsigned w, h;
-			testRender = argv[argPos++];
+			opts.testRender = argv[argPos++];
 			if (!(parseUnsigned(w, argv[argPos++]) && parseUnsigned(h, argv[argPos++]) && (int) w > 0 && (int) h > 0))
 				ABORT("Invalid arguments for test render. Use -testrender <output." DEFAULT_IMAGE_EXTENSION "> <width> <height>.");
-			testWidth = w, testHeight = h;
+			opts.testWidth = w;
+			opts.testHeight = h;
 			continue;
 		}
 		ARG_CASE("-testrendermulti", 3) {
 			unsigned w, h;
-			testRenderMulti = argv[argPos++];
+			opts.testRenderMulti = argv[argPos++];
 			if (!(parseUnsigned(w, argv[argPos++]) && parseUnsigned(h, argv[argPos++]) && (int) w > 0 && (int) h > 0))
 				ABORT("Invalid arguments for test render. Use -testrendermulti <output." DEFAULT_IMAGE_EXTENSION "> <width> <height>.");
-			testWidthM = w, testHeightM = h;
+			opts.testWidthM = w;
+			opts.testHeightM = h;
 			continue;
 		}
 		ARG_CASE("-yflip", 0) {
-			yFlip = true;
+			opts.yFlip = true;
 			continue;
 		}
 		ARG_CASE("-printmetrics", 0) {
-			printMetrics = true;
+			opts.printMetrics = true;
 			continue;
 		}
 		ARG_CASE("-estimateerror", 0) {
-			estimateError = true;
+			opts.estimateError = true;
 			continue;
 		}
 		ARG_CASE("-keeporder", 0) {
-			orientation = KEEP;
+			opts.orientation = InternalOptions::KEEP;
 			continue;
 		}
 		ARG_CASE("-reverseorder", 0) {
-			orientation = REVERSE;
+			opts.orientation = InternalOptions::REVERSE;
 			continue;
 		}
 		ARG_CASE("-guessorder", 0) {
-			orientation = GUESS;
+			opts.orientation = InternalOptions::GUESS;
 			continue;
 		}
 		ARG_CASE("-seed", 1) {
-			if (!parseUnsignedLL(coloringSeed, argv[argPos++]))
+			if (!parseUnsignedLL(opts.coloringSeed, argv[argPos++]))
 				ABORT("Invalid seed. Use -seed <N> with N being a non-negative integer.");
 			continue;
 		}
@@ -993,10 +1021,12 @@ EDGE_COLOR_VERIFIED:;
 	if (suggestHelp)
 		fprintf(stderr, "Use -help for more information.\n");
 
+#endif
+
 	// Load input
 	Shape::Bounds svgViewBox = { };
 	double glyphAdvance = 0;
-	if (!inputType || !input) {
+	if (!opts2.inputType || !opts2.input) {
 #ifdef MSDFGEN_EXTENSIONS
 #ifdef MSDFGEN_DISABLE_SVG
 		ABORT("No input specified! Use -font <file.ttf/otf> <character code> or see -help.");
@@ -1007,13 +1037,14 @@ EDGE_COLOR_VERIFIED:;
 		ABORT("No input specified! See -help.");
 #endif
 	}
-	if (mode == MULTI_AND_TRUE && (format == BMP || (format == AUTO && output && cmpExtension(output, ".bmp"))))
+	if (opts2.mode == InternalOptions::MULTI_AND_TRUE && (opts2.format == Format::BMP || (opts2.format == Format::AUTO && opts2.output && cmpExtension(opts2.output, ".bmp"))))
 		ABORT("Incompatible image format. A BMP file cannot contain alpha channel, which is required in mtsdf mode.");
 	Shape shape;
-	switch (inputType) {
+	switch (opts2.inputType) {
 #if defined(MSDFGEN_EXTENSIONS) && !defined(MSDFGEN_DISABLE_SVG)
-	case SVG: {
-			int svgImportFlags = loadSvgShape(shape, svgViewBox, input);
+	case InternalOptions::SVG:
+		{
+			int svgImportFlags = loadSvgShape(shape, svgViewBox, opts2.input);
 			if (!(svgImportFlags&SVG_IMPORT_SUCCESS_FLAG))
 				ABORT("Failed to load shape from SVG file.");
 			if (svgImportFlags&SVG_IMPORT_PARTIAL_FAILURE_FLAG)
@@ -1028,8 +1059,9 @@ EDGE_COLOR_VERIFIED:;
 		}
 #endif
 #ifdef MSDFGEN_EXTENSIONS
-	case FONT: case VAR_FONT: {
-			if (!glyphIndexSpecified && !unicode)
+	case InternalOptions::FONT: case InternalOptions::VAR_FONT:
+		{
+			if (!opts2.glyphIndexSpecified && !opts2.unicode)
 				ABORT("No character specified! Use -font <file.ttf/otf> <character code>. Character code can be a Unicode index (65, 0x41), a character in apostrophes ('A'), or a glyph index prefixed by g (g36, g0x24).");
 			struct FreetypeFontGuard {
 				FreetypeHandle *ft;
@@ -1047,16 +1079,16 @@ EDGE_COLOR_VERIFIED:;
 				ABORT("Failed to initialize FreeType library.");
 			if (!(guard.font = (
 		  #ifndef MSDFGEN_DISABLE_VARIABLE_FONTS
-					  inputType == VAR_FONT ? loadVarFont(guard.ft, input) :
+					  opts2.inputType == InternalOptions::VAR_FONT ? loadVarFont(guard.ft, opts2.input) :
 		  #endif
-					  loadFont(guard.ft, input)
+					  loadFont(guard.ft, opts2.input)
 					  )))
 				ABORT("Failed to load font file.");
-			if (unicode)
-				getGlyphIndex(glyphIndex, guard.font, unicode);
-			if (!loadGlyph(shape, guard.font, glyphIndex, fontCoordinateScaling, &glyphAdvance))
+			if (opts2.unicode)
+				getGlyphIndex(opts2.glyphIndex, guard.font, opts2.unicode);
+			if (!loadGlyph(shape, guard.font, opts2.glyphIndex, opts2.fontCoordinateScaling, &glyphAdvance))
 				ABORT("Failed to load glyph from font file.");
-			if (!fontCoordinateScalingSpecified && (!autoFrame || scaleSpecified || rangeMode == RANGE_UNIT || mode == METRICS || printMetrics || shapeExport || svgExport)) {
+			if (!opts2.fontCoordinateScalingSpecified && (!opts2.autoFrame || opts2.scaleSpecified || opts2.rangeMode == InternalOptions::RANGE_UNIT || opts2.mode == InternalOptions::METRICS || opts2.printMetrics || opts2.shapeExport || opts2.svgExport)) {
 				fputs(
 							"Warning: Using legacy font coordinate conversion for compatibility reasons.\n"
 							"         The implicit scaling behavior will likely change in a future version resulting in different output.\n"
@@ -1068,21 +1100,24 @@ EDGE_COLOR_VERIFIED:;
 			break;
 		}
 #endif
-	case DESCRIPTION_ARG: {
-			if (!readShapeDescription(input, shape, &skipColoring))
+	case InternalOptions::DESCRIPTION_ARG:
+		{
+			if (!readShapeDescription(opts2.input, shape, &opts2.skipColoring))
 				ABORT("Parse error in shape description.");
 			break;
 		}
-	case DESCRIPTION_STDIN: {
-			if (!readShapeDescription(stdin, shape, &skipColoring))
+	case InternalOptions::DESCRIPTION_STDIN:
+		{
+			if (!readShapeDescription(stdin, shape, &opts2.skipColoring))
 				ABORT("Parse error in shape description.");
 			break;
 		}
-	case DESCRIPTION_FILE: {
-			FILE *file = fopen(input, "r");
+	case InternalOptions::DESCRIPTION_FILE:
+		{
+			FILE *file = fopen(opts2.input, "r");
 			if (!file)
 				ABORT("Failed to load shape description file.");
-			bool readSuccessful = readShapeDescription(file, shape, &skipColoring);
+			bool readSuccessful = readShapeDescription(file, shape, &opts2.skipColoring);
 			fclose(file);
 			if (!readSuccessful)
 				ABORT("Parse error in shape description.");
@@ -1094,13 +1129,13 @@ EDGE_COLOR_VERIFIED:;
 	// Validate and normalize shape
 	if (!shape.validate())
 		ABORT("The geometry of the loaded shape is invalid.");
-	switch (geometryPreproc) {
-	case NO_PREPROCESS:
+	switch (opts2.geometryPreproc) {
+	case InternalOptions::NO_PREPROCESS:
 		break;
-	case WINDING_PREPROCESS:
+	case InternalOptions::WINDING_PREPROCESS:
 		shape.orientContours();
 		break;
-	case FULL_PREPROCESS:
+	case InternalOptions::FULL_PREPROCESS:
 #ifdef MSDFGEN_USE_SKIA
 		if (!resolveShapeGeometry(shape))
 			fputs("Shape geometry preprocessing failed, skipping.\n", stderr);
@@ -1114,59 +1149,59 @@ EDGE_COLOR_VERIFIED:;
 		break;
 	}
 	shape.normalize();
-	if (yFlip)
+	if (opts2.yFlip)
 		shape.inverseYAxis = !shape.inverseYAxis;
 
-	double avgScale = .5*(scale.x+scale.y);
+	double avgScale = .5*(opts2.scale.x+opts2.scale.y);
 	Shape::Bounds bounds = { };
-	if (autoFrame || mode == METRICS || printMetrics || orientation == GUESS || svgExport)
+	if (opts2.autoFrame || opts2.mode == InternalOptions::METRICS || opts2.printMetrics || opts2.orientation == InternalOptions::GUESS || opts2.svgExport)
 		bounds = shape.getBounds();
 
-	if (outputDistanceShift) {
-		Range &rangeRef = rangeMode == RANGE_PX ? pxRange : range;
-		double rangeShift = -outputDistanceShift*(rangeRef.upper-rangeRef.lower);
+	if (opts2.outputDistanceShift) {
+		Range &rangeRef = opts2.rangeMode == InternalOptions::RANGE_PX ? opts2.pxRange : opts2.range;
+		double rangeShift = -opts2.outputDistanceShift*(rangeRef.upper-rangeRef.lower);
 		rangeRef.lower += rangeShift;
 		rangeRef.upper += rangeShift;
 	}
 
 	// Auto-frame
-	if (autoFrame) {
+	if (opts2.autoFrame) {
 		double l = bounds.l, b = bounds.b, r = bounds.r, t = bounds.t;
-		Vector2 frame(width, height);
-		if (!scaleSpecified) {
-			if (rangeMode == RANGE_UNIT)
-				l += range.lower, b += range.lower, r -= range.lower, t -= range.lower;
+		Vector2 frame(opts2.width, opts2.height);
+		if (!opts2.scaleSpecified) {
+			if (opts2.rangeMode == InternalOptions::RANGE_UNIT)
+				l += opts2.range.lower, b += opts2.range.lower, r -= opts2.range.lower, t -= opts2.range.lower;
 			else
-				frame += 2*pxRange.lower;
+				frame += 2*opts2.pxRange.lower;
 		}
 		if (l >= r || b >= t)
 			l = 0, b = 0, r = 1, t = 1;
 		if (frame.x <= 0 || frame.y <= 0)
 			ABORT("Cannot fit the specified pixel range.");
 		Vector2 dims(r-l, t-b);
-		if (scaleSpecified)
-			translate = .5*(frame/scale-dims)-Vector2(l, b);
+		if (opts2.scaleSpecified)
+			opts2.translate = .5*(frame/opts2.scale-dims)-Vector2(l, b);
 		else {
 			if (dims.x*frame.y < dims.y*frame.x) {
-				translate.set(.5*(frame.x/frame.y*dims.y-dims.x)-l, -b);
-				scale = avgScale = frame.y/dims.y;
+				opts2.translate.set(.5*(frame.x/frame.y*dims.y-dims.x)-l, -b);
+				opts2.scale = avgScale = frame.y/dims.y;
 			} else {
-				translate.set(-l, .5*(frame.y/frame.x*dims.x-dims.y)-b);
-				scale = avgScale = frame.x/dims.x;
+				opts2.translate.set(-l, .5*(frame.y/frame.x*dims.x-dims.y)-b);
+				opts2.scale = avgScale = frame.x/dims.x;
 			}
 		}
-		if (rangeMode == RANGE_PX && !scaleSpecified)
-			translate -= pxRange.lower/scale;
+		if (opts2.rangeMode == InternalOptions::RANGE_PX && !opts2.scaleSpecified)
+			opts2.translate -= opts2.pxRange.lower/opts2.scale;
 	}
 
-	if (rangeMode == RANGE_PX)
-		range = pxRange/min(scale.x, scale.y);
+	if (opts2.rangeMode == InternalOptions::RANGE_PX)
+		opts2.range = opts2.pxRange/min(opts2.scale.x, opts2.scale.y);
 
 	// Print metrics
-	if (mode == METRICS || printMetrics) {
+	if (opts2.mode == InternalOptions::METRICS || opts2.printMetrics) {
 		FILE *out = stdout;
-		if (mode == METRICS && outputSpecified)
-			out = fopen(output, "w");
+		if (opts2.mode == InternalOptions::METRICS && opts2.outputSpecified)
+			out = fopen(opts2.output, "w");
 		if (!out)
 			ABORT("Failed to write output file.");
 		if (shape.inverseYAxis)
@@ -1177,27 +1212,27 @@ EDGE_COLOR_VERIFIED:;
 			fprintf(out, "bounds = %.17g, %.17g, %.17g, %.17g\n", bounds.l, bounds.b, bounds.r, bounds.t);
 		if (glyphAdvance != 0)
 			fprintf(out, "advance = %.17g\n", glyphAdvance);
-		if (autoFrame) {
-			if (!scaleSpecified)
+		if (opts2.autoFrame) {
+			if (!opts2.scaleSpecified)
 				fprintf(out, "scale = %.17g\n", avgScale);
-			fprintf(out, "translate = %.17g, %.17g\n", translate.x, translate.y);
+			fprintf(out, "translate = %.17g, %.17g\n", opts2.translate.x, opts2.translate.y);
 		}
-		if (rangeMode == RANGE_PX)
-			fprintf(out, "range %.17g to %.17g\n", range.lower, range.upper);
-		if (mode == METRICS && outputSpecified)
+		if (opts2.rangeMode == InternalOptions::RANGE_PX)
+			fprintf(out, "range %.17g to %.17g\n", opts2.range.lower, opts2.range.upper);
+		if (opts2.mode == InternalOptions::METRICS && opts2.outputSpecified)
 			fclose(out);
 	}
 
 	// Compute output
-	SDFTransformation transformation(Projection(scale, translate), range);
+	SDFTransformation transformation(Projection(opts2.scale, opts2.translate), opts2.range);
 	Bitmap<float, 1> sdf;
 	Bitmap<float, 3> msdf;
 	Bitmap<float, 4> mtsdf;
-	MSDFGeneratorConfig postErrorCorrectionConfig(generatorConfig);
-	if (scanlinePass) {
-		if (explicitErrorCorrectionMode && generatorConfig.errorCorrection.distanceCheckMode != ErrorCorrectionConfig::DO_NOT_CHECK_DISTANCE) {
+	MSDFGeneratorConfig postErrorCorrectionConfig(opts2.generatorConfig);
+	if (opts2.scanlinePass) {
+		if (opts2.explicitErrorCorrectionMode && opts2.generatorConfig.errorCorrection.distanceCheckMode != ErrorCorrectionConfig::DO_NOT_CHECK_DISTANCE) {
 			const char *fallbackModeName = "unknown";
-			switch (generatorConfig.errorCorrection.mode) {
+			switch (opts2.generatorConfig.errorCorrection.mode) {
 			case ErrorCorrectionConfig::DISABLED: fallbackModeName = "disabled"; break;
 			case ErrorCorrectionConfig::INDISCRIMINATE: fallbackModeName = "distance-fast"; break;
 			case ErrorCorrectionConfig::EDGE_PRIORITY: fallbackModeName = "auto-fast"; break;
@@ -1205,183 +1240,206 @@ EDGE_COLOR_VERIFIED:;
 			}
 			fprintf(stderr, "Selected error correction mode not compatible with scanline pass, falling back to %s.\n", fallbackModeName);
 		}
-		generatorConfig.errorCorrection.mode = ErrorCorrectionConfig::DISABLED;
+		opts2.generatorConfig.errorCorrection.mode = ErrorCorrectionConfig::DISABLED;
 		postErrorCorrectionConfig.errorCorrection.distanceCheckMode = ErrorCorrectionConfig::DO_NOT_CHECK_DISTANCE;
 	}
-	switch (mode) {
-	case SINGLE: {
-			sdf = Bitmap<float, 1>(width, height);
-			if (legacyMode)
-				generateSDF_legacy(sdf, shape, range, scale, translate);
+	switch (opts2.mode) {
+	case InternalOptions::SINGLE:
+		{
+			sdf = Bitmap<float, 1>(opts2.width, opts2.height);
+			if (opts2.legacyMode)
+				generateSDF_legacy(sdf, shape, opts2.range, opts2.scale, opts2.translate);
 			else
-				generateSDF(sdf, shape, transformation, generatorConfig);
+				generateSDF(sdf, shape, transformation, opts2.generatorConfig);
 			break;
 		}
-	case PERPENDICULAR: {
-			sdf = Bitmap<float, 1>(width, height);
-			if (legacyMode)
-				generatePSDF_legacy(sdf, shape, range, scale, translate);
+	case InternalOptions::PERPENDICULAR:
+		{
+			sdf = Bitmap<float, 1>(opts2.width, opts2.height);
+			if (opts2.legacyMode)
+				generatePSDF_legacy(sdf, shape, opts2.range, opts2.scale, opts2.translate);
 			else
-				generatePSDF(sdf, shape, transformation, generatorConfig);
+				generatePSDF(sdf, shape, transformation, opts2.generatorConfig);
 			break;
 		}
-	case MULTI: {
-			if (!skipColoring)
-				edgeColoring(shape, angleThreshold, coloringSeed);
-			if (edgeAssignment)
-				parseColoring(shape, edgeAssignment);
-			msdf = Bitmap<float, 3>(width, height);
-			if (legacyMode)
-				generateMSDF_legacy(msdf, shape, range, scale, translate, generatorConfig.errorCorrection);
+	case InternalOptions::MULTI:
+		{
+			if (!opts2.skipColoring)
+				opts2.edgeColoring(shape, opts2.angleThreshold, opts2.coloringSeed);
+			if (opts2.edgeAssignment)
+				parseColoring(shape, opts2.edgeAssignment);
+			msdf = Bitmap<float, 3>(opts2.width, opts2.height);
+			if (opts2.legacyMode)
+				generateMSDF_legacy(msdf, shape, opts2.range, opts2.scale, opts2.translate, opts2.generatorConfig.errorCorrection);
 			else
-				generateMSDF(msdf, shape, transformation, generatorConfig);
+				generateMSDF(msdf, shape, transformation, opts2.generatorConfig);
 			break;
 		}
-	case MULTI_AND_TRUE: {
-			if (!skipColoring)
-				edgeColoring(shape, angleThreshold, coloringSeed);
-			if (edgeAssignment)
-				parseColoring(shape, edgeAssignment);
-			mtsdf = Bitmap<float, 4>(width, height);
-			if (legacyMode)
-				generateMTSDF_legacy(mtsdf, shape, range, scale, translate, generatorConfig.errorCorrection);
+	case InternalOptions::MULTI_AND_TRUE:
+		{
+			if (!opts2.skipColoring)
+				opts2.edgeColoring(shape, opts2.angleThreshold, opts2.coloringSeed);
+			if (opts2.edgeAssignment)
+				parseColoring(shape, opts2.edgeAssignment);
+			mtsdf = Bitmap<float, 4>(opts2.width, opts2.height);
+			if (opts2.legacyMode)
+				generateMTSDF_legacy(mtsdf, shape, opts2.range, opts2.scale, opts2.translate, opts2.generatorConfig.errorCorrection);
 			else
-				generateMTSDF(mtsdf, shape, transformation, generatorConfig);
+				generateMTSDF(mtsdf, shape, transformation, opts2.generatorConfig);
 			break;
 		}
 	default:;
 	}
 
-	if (orientation == GUESS) {
+	if (opts2.orientation == InternalOptions::GUESS) {
 		// Get sign of signed distance outside bounds
 		Point2 p(bounds.l-(bounds.r-bounds.l)-1, bounds.b-(bounds.t-bounds.b)-1);
 		double distance = SimpleTrueShapeDistanceFinder::oneShotDistance(shape, p);
-		orientation = distance <= 0 ? KEEP : REVERSE;
+		opts2.orientation = distance <= 0 ? InternalOptions::KEEP : InternalOptions::REVERSE;
 	}
-	if (orientation == REVERSE) {
-		switch (mode) {
-		case SINGLE:
-		case PERPENDICULAR:
+	if (opts2.orientation == InternalOptions::REVERSE) {
+		switch (opts2.mode) {
+		case InternalOptions::SINGLE:
+		case InternalOptions::PERPENDICULAR:
 			invertColor<1>(sdf);
 			break;
-		case MULTI:
+		case InternalOptions::MULTI:
 			invertColor<3>(msdf);
 			break;
-		case MULTI_AND_TRUE:
+		case InternalOptions::MULTI_AND_TRUE:
 			invertColor<4>(mtsdf);
 			break;
 		default:;
 		}
 	}
-	if (scanlinePass) {
-		switch (mode) {
-		case SINGLE:
-		case PERPENDICULAR:
-			distanceSignCorrection(sdf, shape, transformation, fillRule);
+	if (opts2.scanlinePass) {
+		switch (opts2.mode) {
+		case InternalOptions::SINGLE:
+		case InternalOptions::PERPENDICULAR:
+			distanceSignCorrection(sdf, shape, transformation, opts2.fillRule);
 			break;
-		case MULTI:
-			distanceSignCorrection(msdf, shape, transformation, fillRule);
+		case InternalOptions::MULTI:
+			distanceSignCorrection(msdf, shape, transformation, opts2.fillRule);
 			msdfErrorCorrection(msdf, shape, transformation, postErrorCorrectionConfig);
 			break;
-		case MULTI_AND_TRUE:
-			distanceSignCorrection(mtsdf, shape, transformation, fillRule);
+		case InternalOptions::MULTI_AND_TRUE:
+			distanceSignCorrection(mtsdf, shape, transformation, opts2.fillRule);
 			msdfErrorCorrection(mtsdf, shape, transformation, postErrorCorrectionConfig);
 			break;
 		default:;
 		}
 	}
 
+	// writeOutput<3>(msdf, opts2.output, opts2.format);
+	QImage image(msdf.width(), msdf.height(), QImage::Format_RGBA8888);
+	int w = msdf.width();
+	int h = msdf.height();
+	for (int y = 0; y < h; y++) {
+		float const *s = msdf(0, h - y - 1);
+		uint8_t *d = image.scanLine(y);
+		for (int x = 0; x < w; x++) {
+			int R = std::max(0, std::min(255, int{floorf(s[3 * x + 0] * 255 + 0.5f)}));
+			int G = std::max(0, std::min(255, int{floorf(s[3 * x + 1] * 255 + 0.5f)}));
+			int B = std::max(0, std::min(255, int{floorf(s[3 * x + 2] * 255 + 0.5f)}));
+			d[4 * x + 0] = R;
+			d[4 * x + 1] = G;
+			d[4 * x + 2] = B;
+			d[4 * x + 3] = 255;
+		}
+	}
+	return image;
+
 	// Save output
-	if (shapeExport) {
-		if (FILE *file = fopen(shapeExport, "w")) {
+	if (opts2.shapeExport) {
+		if (FILE *file = fopen(opts2.shapeExport, "w")) {
 			writeShapeDescription(file, shape);
 			fclose(file);
 		} else
 			fputs("Failed to write shape export file.\n", stderr);
 	}
-	if (svgExport) {
-		if (!saveSvgShape(shape, bounds, svgExport))
+	if (opts2.svgExport) {
+		if (!saveSvgShape(shape, bounds, opts2.svgExport))
 			fputs("Failed to write shape SVG file.\n", stderr);
 	}
 	const char *error = NULL;
-	switch (mode) {
-	case SINGLE:
-	case PERPENDICULAR:
-		if ((error = writeOutput<1>(sdf, output, format))) {
+	switch (opts2.mode) {
+	case InternalOptions::SINGLE:
+	case InternalOptions::PERPENDICULAR:
+		if ((error = writeOutput<1>(sdf, opts2.output, opts2.format))) {
 			fprintf(stderr, "%s\n", error);
-			return 1;
+			return {};
 		}
-		if (is8bitFormat(format) && (testRenderMulti || testRender || estimateError))
+		if (is8bitFormat(opts2.format) && (opts2.testRenderMulti || opts2.testRender || opts2.estimateError))
 			simulate8bit(sdf);
-		if (estimateError) {
-			double sdfError = estimateSDFError(sdf, shape, transformation, SDF_ERROR_ESTIMATE_PRECISION, fillRule);
+		if (opts2.estimateError) {
+			double sdfError = estimateSDFError(sdf, shape, transformation, SDF_ERROR_ESTIMATE_PRECISION, opts2.fillRule);
 			printf("SDF error ~ %e\n", sdfError);
 		}
-		if (testRenderMulti) {
-			Bitmap<float, 3> render(testWidthM, testHeightM);
-			renderSDF(render, sdf, avgScale*range);
-			if (!SAVE_DEFAULT_IMAGE_FORMAT(render, testRenderMulti))
+		if (opts2.testRenderMulti) {
+			Bitmap<float, 3> render(opts2.testWidthM, opts2.testHeightM);
+			renderSDF(render, sdf, avgScale*opts2.range);
+			if (!SAVE_DEFAULT_IMAGE_FORMAT(render, opts2.testRenderMulti))
 				fputs("Failed to write test render file.\n", stderr);
 		}
-		if (testRender) {
-			Bitmap<float, 1> render(testWidth, testHeight);
-			renderSDF(render, sdf, avgScale*range);
-			if (!SAVE_DEFAULT_IMAGE_FORMAT(render, testRender))
+		if (opts2.testRender) {
+			Bitmap<float, 1> render(opts2.testWidth, opts2.testHeight);
+			renderSDF(render, sdf, avgScale*opts2.range);
+			if (!SAVE_DEFAULT_IMAGE_FORMAT(render, opts2.testRender))
 				fputs("Failed to write test render file.\n", stderr);
 		}
 		break;
-	case MULTI:
-		if ((error = writeOutput<3>(msdf, output, format))) {
+	case InternalOptions::MULTI:
+		if ((error = writeOutput<3>(msdf, opts2.output, opts2.format))) {
 			fprintf(stderr, "%s\n", error);
-			return 1;
+			return {};
 		}
-		if (is8bitFormat(format) && (testRenderMulti || testRender || estimateError))
+		if (is8bitFormat(opts2.format) && (opts2.testRenderMulti || opts2.testRender || opts2.estimateError))
 			simulate8bit(msdf);
-		if (estimateError) {
-			double sdfError = estimateSDFError(msdf, shape, transformation, SDF_ERROR_ESTIMATE_PRECISION, fillRule);
+		if (opts2.estimateError) {
+			double sdfError = estimateSDFError(msdf, shape, transformation, SDF_ERROR_ESTIMATE_PRECISION, opts2.fillRule);
 			printf("SDF error ~ %e\n", sdfError);
 		}
-		if (testRenderMulti) {
-			Bitmap<float, 3> render(testWidthM, testHeightM);
-			renderSDF(render, msdf, avgScale*range);
-			if (!SAVE_DEFAULT_IMAGE_FORMAT(render, testRenderMulti))
+		if (opts2.testRenderMulti) {
+			Bitmap<float, 3> render(opts2.testWidthM, opts2.testHeightM);
+			renderSDF(render, msdf, avgScale*opts2.range);
+			if (!SAVE_DEFAULT_IMAGE_FORMAT(render, opts2.testRenderMulti))
 				fputs("Failed to write test render file.\n", stderr);
 		}
-		if (testRender) {
-			Bitmap<float, 1> render(testWidth, testHeight);
-			renderSDF(render, msdf, avgScale*range);
-			if (!SAVE_DEFAULT_IMAGE_FORMAT(render, testRender))
+		if (opts2.testRender) {
+			Bitmap<float, 1> render(opts2.testWidth, opts2.testHeight);
+			renderSDF(render, msdf, avgScale*opts2.range);
+			if (!SAVE_DEFAULT_IMAGE_FORMAT(render, opts2.testRender))
 				fputs("Failed to write test render file.\n", stderr);
 		}
 		break;
-	case MULTI_AND_TRUE:
-		if ((error = writeOutput<4>(mtsdf, output, format))) {
+	case InternalOptions::MULTI_AND_TRUE:
+		if ((error = writeOutput<4>(mtsdf, opts2.output, opts2.format))) {
 			fprintf(stderr, "%s\n", error);
-			return 1;
+			return {};
 		}
-		if (is8bitFormat(format) && (testRenderMulti || testRender || estimateError))
+		if (is8bitFormat(opts2.format) && (opts2.testRenderMulti || opts2.testRender || opts2.estimateError))
 			simulate8bit(mtsdf);
-		if (estimateError) {
-			double sdfError = estimateSDFError(mtsdf, shape, transformation, SDF_ERROR_ESTIMATE_PRECISION, fillRule);
+		if (opts2.estimateError) {
+			double sdfError = estimateSDFError(mtsdf, shape, transformation, SDF_ERROR_ESTIMATE_PRECISION, opts2.fillRule);
 			printf("SDF error ~ %e\n", sdfError);
 		}
-		if (testRenderMulti) {
-			Bitmap<float, 4> render(testWidthM, testHeightM);
-			renderSDF(render, mtsdf, avgScale*range);
-			if (!SAVE_DEFAULT_IMAGE_FORMAT(render, testRenderMulti))
+		if (opts2.testRenderMulti) {
+			Bitmap<float, 4> render(opts2.testWidthM, opts2.testHeightM);
+			renderSDF(render, mtsdf, avgScale*opts2.range);
+			if (!SAVE_DEFAULT_IMAGE_FORMAT(render, opts2.testRenderMulti))
 				fputs("Failed to write test render file.\n", stderr);
 		}
-		if (testRender) {
-			Bitmap<float, 1> render(testWidth, testHeight);
-			renderSDF(render, mtsdf, avgScale*range);
-			if (!SAVE_DEFAULT_IMAGE_FORMAT(render, testRender))
+		if (opts2.testRender) {
+			Bitmap<float, 1> render(opts2.testWidth, opts2.testHeight);
+			renderSDF(render, mtsdf, avgScale*opts2.range);
+			if (!SAVE_DEFAULT_IMAGE_FORMAT(render, opts2.testRender))
 				fputs("Failed to write test render file.\n", stderr);
 		}
 		break;
 	default:;
 	}
 
-	return 0;
+	return {};
 }
 
 

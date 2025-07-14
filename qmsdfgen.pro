@@ -2,6 +2,7 @@ DESTDIR = $$PWD/_bin
 
 TEMPLATE = app
 TARGET = qmsdfgen
+CONFIG += -std=c++20
 QT += core gui widgets
 
 DEFINES += MSDFGEN_STANDALONE

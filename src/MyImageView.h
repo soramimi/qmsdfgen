@@ -6,7 +6,7 @@
 class MyImageView : public QWidget {
 	Q_OBJECT
 private:
-	QImage image_;
+	QImage msdf_image_;
 	QImage rendered_image_;
 
 	// QWidget interface

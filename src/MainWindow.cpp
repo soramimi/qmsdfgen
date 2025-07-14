@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include "msdfmain.h"
 #include "ui_MainWindow.h"
 
 #include <QFileDialog>
@@ -28,28 +29,19 @@ void MainWindow::on_pushButton_browse_input_clicked()
 	path = QFileDialog::getOpenFileName(this, tr("Input file"), path, "SVG files (*.svg);;All files (*.*)");
 	if (!path.isEmpty()) {
 		ui->lineEdit_input->setText(path);
+		updateImage();
 	}
 }
 
 
-void MainWindow::on_pushButton_browse_output_clicked()
-{
-	QString path;
-	path = QFileDialog::getSaveFileName(this, tr("Output file"), path, "PNG files (*.png);;All files (*.*)");
-	if (!path.isEmpty()) {
-		ui->lineEdit_output->setText(path);
-	}
-}
+
 
 QString MainWindow::pathInput() const
 {
 	return ui->lineEdit_input->text();
 }
 
-QString MainWindow::pathOutput() const
-{
-	return ui->lineEdit_output->text();
-}
+
 
 
 template <int N>
@@ -117,8 +109,6 @@ static const char *writeOutput(const msdfgen::BitmapConstRef<float, N> &bitmap, 
 	return NULL;
 }
 
-int msdfmain(int argc, const char *const *argv);
-
 QImage render_msdf_image(QImage const &msdfimage, QSize size)
 {
 	if (msdfimage.isNull()) return {};
@@ -152,17 +142,12 @@ QImage render_msdf_image(QImage const &msdfimage, QSize size)
 }
 
 
-void MainWindow::on_pushButton_save_clicked()
+void MainWindow::updateImage()
 {
 	QString srcpath = pathInput();
-	QString dstpath = pathOutput();
 #if 1
 	if (srcpath.isEmpty()) {
 		QMessageBox::warning(this, tr("Warning"), tr("Input file path is empty!"));
-		return;
-	}
-	if (dstpath.isEmpty()) {
-		QMessageBox::warning(this, tr("Warning"), tr("Output file path is empty!"));
 		return;
 	}
 #else
@@ -171,24 +156,26 @@ void MainWindow::on_pushButton_save_clicked()
 #endif
 
 	std::string srcpath_std = srcpath.toStdString();
-	std::string dstpath_std = dstpath.toStdString();
-	std::string size = "64";
 
 	std::vector<char const *> args;
 	args.push_back("");
-	args.push_back("-svg");
-	args.push_back(srcpath_std.c_str());
-	args.push_back("-o");
-	args.push_back(dstpath_std.c_str());
-	args.push_back("-size");
-	args.push_back(size.c_str());
-	args.push_back(size.c_str());
-	args.push_back("-autoframe");
-	msdfmain(args.size(), args.data());
+	// args.push_back("-svg");
+	// args.push_back(srcpath_std.c_str());
+	// args.push_back("-o");
+	// args.push_back(dstpath_std.c_str());
+	// args.push_back("-size");
+	// args.push_back(size.c_str());
+	// args.push_back(size.c_str());
+	// args.push_back("-autoframe");
+	Options opts;
+	opts.input_file = srcpath_std;
+	opts.width = 64;
+	opts.height = 64;
+	QImage image = msdfmain(opts);
 
 	QSize sz = ui->widget_view->size();
 
-	QImage image(dstpath);
+	// QImage image(dstpath);
 	// image = render_msdf_image(image, sz);
 	ui->widget_view->setImage(image);
 }
