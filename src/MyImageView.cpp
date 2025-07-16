@@ -9,11 +9,13 @@ MyImageView::MyImageView(QWidget *parent)
 	: QWidget{parent}
 {
 
+
 }
 
 void MyImageView::setImage(const QImage &image)
 {
-	msdf_image_ = image;
+	original_msdf_image_ = image;
+	scaled_msdf_image_ = {};
 	rendered_image_ = {};
 	update();
 }
@@ -21,11 +23,22 @@ void MyImageView::setImage(const QImage &image)
 void MyImageView::paintEvent(QPaintEvent *event)
 {
 	Q_UNUSED(event);
-	if (rendered_image_.isNull()) {
-		rendered_image_ = render_msdf_image(msdf_image_, size());
+	if (scaled_msdf_image_.isNull()) {
+		int w = width();
+		int h = height();
+		scaled_msdf_image_ = original_msdf_image_.convertToFormat(QImage::Format_RGBA8888);
+		scaled_msdf_image_ = scaled_msdf_image_.scaled(w, h, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+		if (view_mode_ == ViewMode::Rendered) {
+			rendered_image_ = render_msdf_image(original_msdf_image_, size());
+		}
+	}
+	QImage img;
+	if (view_mode_ == ViewMode::MSDF) {
+		img = scaled_msdf_image_;
+	} else if (view_mode_ == ViewMode::Rendered) {
+		img = rendered_image_;
 	}
 	QPainter painter(this);
-	QImage img = rendered_image_;
 	if (!img.isNull()) {
 		painter.drawImage(rect(), img);
 	} else {
@@ -37,6 +50,7 @@ void MyImageView::paintEvent(QPaintEvent *event)
 
 void MyImageView::resizeEvent(QResizeEvent *event)
 {
+	scaled_msdf_image_ = {};
 	rendered_image_ = {};
 	QWidget::resizeEvent(event);
 }

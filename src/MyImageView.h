@@ -3,28 +3,33 @@
 
 #include <QWidget>
 
+enum class ViewMode {
+	MSDF,
+	Rendered,
+};
+
 class MyImageView : public QWidget {
 	Q_OBJECT
 private:
-	QImage msdf_image_;
+	ViewMode view_mode_ = ViewMode::Rendered;
+	QImage original_msdf_image_;
+	QImage scaled_msdf_image_;
 	QImage rendered_image_;
-
-	// QWidget interface
+protected:
+	void paintEvent(QPaintEvent *event);
+	void resizeEvent(QResizeEvent *event);
 public:
 	explicit MyImageView(QWidget *parent = nullptr);
 
 	void setImage(const QImage &image);
 
-signals:
-
-
-	// QWidget interface
-protected:
-	void paintEvent(QPaintEvent *event);
-
-	// QWidget interface
-protected:
-	void resizeEvent(QResizeEvent *event);
+	void setViewMode(ViewMode mode)
+	{
+		view_mode_ = mode;
+		scaled_msdf_image_ = {};
+		rendered_image_ = {};
+		update();
+	}
 };
 
 #endif // MYIMAGEVIEW_H

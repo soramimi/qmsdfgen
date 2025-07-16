@@ -68,8 +68,12 @@ HEADERS += msdfgen/msdfgen-ext.h \
            msdfgen/ext/import-svg.h \
            msdfgen/ext/resolve-shape-geometry.h \
            msdfgen/ext/save-png.h \
+           src/ApplicationGlobal.h \
+           src/ApplicationSettings.h \
            src/MainWindow.h \
            src/MyImageView.h \
+           src/MySettings.h \
+           src/joinpath.h \
            src/msdfmain.h
 SOURCES += \
            msdfgen/core/contour-combiners.cpp \
@@ -100,8 +104,12 @@ SOURCES += \
            msdfgen/ext/import-svg.cpp \
            msdfgen/ext/resolve-shape-geometry.cpp \
            msdfgen/ext/save-png.cpp \
+           src/ApplicationGlobal.cpp \
+           src/ApplicationSettings.cpp \
            src/MainWindow.cpp \
            src/MyImageView.cpp \
+           src/MySettings.cpp \
+           src/joinpath.cpp \
            src/main.cpp \
            src/msdfmain.cpp
 

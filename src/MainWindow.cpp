@@ -1,7 +1,9 @@
 #include "MainWindow.h"
+#include "MySettings.h"
 #include "msdfmain.h"
 #include "ui_MainWindow.h"
 
+#include "ApplicationGlobal.h"
 #include <QFileDialog>
 #include <QMessageBox>
 
@@ -9,6 +11,7 @@
 #include "core/ShapeDistanceFinder.h"
 #include "ext/import-svg.h"
 #include "ext/save-png.h"
+#include "ApplicationSettings.h"
 #include <cstdint>
 
 MainWindow::MainWindow(QWidget *parent)
@@ -16,6 +19,22 @@ MainWindow::MainWindow(QWidget *parent)
 	, ui(new Ui::MainWindow)
 {
 	ui->setupUi(this);
+
+	ui->radioButton_rendered->click();
+
+	if (appsettings()->remember_and_restore_window_position) {
+		Qt::WindowStates state = windowState();
+
+		MySettings settings;
+		settings.beginGroup("MainWindow");
+		bool maximized = settings.value("Maximized").toBool();
+		restoreGeometry(settings.value("Geometry").toByteArray());
+		settings.endGroup();
+		if (maximized) {
+			state |= Qt::WindowMaximized;
+			setWindowState(state);
+		}
+	}
 }
 
 MainWindow::~MainWindow()
@@ -23,12 +42,45 @@ MainWindow::~MainWindow()
 	delete ui;
 }
 
+void MainWindow::show()
+{
+	{
+		MySettings settings;
+		settings.beginGroup("File");
+		QString srcpath = settings.value("RecentInputFile", "").toString();
+		settings.endGroup();
+		ui->lineEdit_input->setText(srcpath);
+		updateImage();
+	}
+
+
+
+	QMainWindow::show();
+}
+
+ApplicationSettings *MainWindow::appsettings()
+{
+	return &global->appsettings;
+}
+
+const ApplicationSettings *MainWindow::appsettings() const
+{
+	return &global->appsettings;
+}
+
+
 void MainWindow::on_pushButton_browse_input_clicked()
 {
 	QString path;
 	path = QFileDialog::getOpenFileName(this, tr("Input file"), path, "SVG files (*.svg);;All files (*.*)");
 	if (!path.isEmpty()) {
 		ui->lineEdit_input->setText(path);
+		{
+			MySettings s;
+			s.beginGroup("File");
+			s.setValue("RecentInputFile", path);
+			s.endGroup();
+		}
 		updateImage();
 	}
 }
@@ -41,73 +93,26 @@ QString MainWindow::pathInput() const
 	return ui->lineEdit_input->text();
 }
 
-
-
-
-template <int N>
-static const char *writeOutput(const msdfgen::BitmapConstRef<float, N> &bitmap, const char *filename) {
-	if (filename) {
-		return msdfgen::savePng(bitmap, filename) ? NULL : "Failed to write output PNG image.";
-#if 0
-		if (format == AUTO) {
-		#if defined(MSDFGEN_EXTENSIONS) && !defined(MSDFGEN_DISABLE_PNG)
-			if (cmpExtension(filename, ".png")) format = PNG;
-		#else
-			if (cmpExtension(filename, ".png"))
-				return "PNG format is not available in core-only version.";
-		#endif
-			else if (cmpExtension(filename, ".bmp")) format = BMP;
-			else if (cmpExtension(filename, ".tiff") || cmpExtension(filename, ".tif")) format = TIFF;
-			else if (cmpExtension(filename, ".rgba")) format = RGBA;
-			else if (cmpExtension(filename, ".fl32")) format = FL32;
-			else if (cmpExtension(filename, ".txt")) format = TEXT;
-			else if (cmpExtension(filename, ".bin")) format = BINARY;
-			else
-				return "Could not deduce format from output file name.";
-		}
-		switch (format) {
-		#if defined(MSDFGEN_EXTENSIONS) && !defined(MSDFGEN_DISABLE_PNG)
-			case PNG: return savePng(bitmap, filename) ? NULL : "Failed to write output PNG image.";
-		#endif
-			case BMP: return saveBmp(bitmap, filename) ? NULL : "Failed to write output BMP image.";
-			case TIFF: return saveTiff(bitmap, filename) ? NULL : "Failed to write output TIFF image.";
-			case RGBA: return saveRgba(bitmap, filename) ? NULL : "Failed to write output RGBA image.";
-			case FL32: return saveFl32(bitmap, filename) ? NULL : "Failed to write output FL32 image.";
-			case TEXT: case TEXT_FLOAT: {
-				FILE *file = fopen(filename, "w");
-				if (!file) return "Failed to write output text file.";
-				if (format == TEXT)
-					writeTextBitmap(file, bitmap.pixels, N*bitmap.width, bitmap.height);
-				else if (format == TEXT_FLOAT)
-					writeTextBitmapFloat(file, bitmap.pixels, N*bitmap.width, bitmap.height);
-				fclose(file);
-				return NULL;
-			}
-			case BINARY: case BINARY_FLOAT: case BINARY_FLOAT_BE: {
-				FILE *file = fopen(filename, "wb");
-				if (!file) return "Failed to write output binary file.";
-				if (format == BINARY)
-					writeBinBitmap(file, bitmap.pixels, N*bitmap.width*bitmap.height);
-				else if (format == BINARY_FLOAT)
-					writeBinBitmapFloat(file, bitmap.pixels, N*bitmap.width*bitmap.height);
-				else if (format == BINARY_FLOAT_BE)
-					writeBinBitmapFloatBE(file, bitmap.pixels, N*bitmap.width*bitmap.height);
-				fclose(file);
-				return NULL;
-			}
-			default:;
-		}
-	} else {
-		if (format == AUTO || format == TEXT)
-			writeTextBitmap(stdout, bitmap.pixels, N*bitmap.width, bitmap.height);
-		else if (format == TEXT_FLOAT)
-			writeTextBitmapFloat(stdout, bitmap.pixels, N*bitmap.width, bitmap.height);
-		else
-			return "Unsupported format for standard output.";
-#endif
+QString MainWindow::saveMSDF()
+{
+	if (msdf_image_.isNull()) {
+		QMessageBox::warning(this, tr("Warning"), tr("No MSDF image to save!"));
+		return QString();
 	}
-	return NULL;
+
+	QString path = pathInput();
+	if (path.endsWith(".svg", Qt::CaseInsensitive)) {
+		path.chop(4);
+		path += ".png";
+	}
+	path = QFileDialog::getSaveFileName(this, tr("Output file"), path, "PNG files (*.png);;All files (*.*)");
+	if (!path.isEmpty()) {
+		msdf_image_.save(path, "PNG");
+	}
 }
+
+
+
 
 QImage render_msdf_image(QImage const &msdfimage, QSize size)
 {
@@ -159,24 +164,58 @@ void MainWindow::updateImage()
 
 	std::vector<char const *> args;
 	args.push_back("");
-	// args.push_back("-svg");
-	// args.push_back(srcpath_std.c_str());
-	// args.push_back("-o");
-	// args.push_back(dstpath_std.c_str());
-	// args.push_back("-size");
-	// args.push_back(size.c_str());
-	// args.push_back(size.c_str());
-	// args.push_back("-autoframe");
 	Options opts;
 	opts.input_file = srcpath_std;
 	opts.width = 64;
 	opts.height = 64;
-	QImage image = msdfmain(opts);
+	msdf_image_ = msdfmain(opts);
 
-	QSize sz = ui->widget_view->size();
+	ui->widget_view->setImage(msdf_image_);
+}
 
-	// QImage image(dstpath);
-	// image = render_msdf_image(image, sz);
-	ui->widget_view->setImage(image);
+
+
+
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+	MySettings settings;
+
+	if (appsettings()->remember_and_restore_window_position) {
+		setWindowOpacity(0);
+		Qt::WindowStates state = windowState();
+		bool maximized = (state & Qt::WindowMaximized) != 0;
+		if (maximized) {
+			state &= ~Qt::WindowMaximized;
+			setWindowState(state);
+		}
+		{
+			settings.beginGroup("MainWindow");
+			settings.setValue("Maximized", maximized);
+			settings.setValue("Geometry", saveGeometry());
+			settings.endGroup();
+		}
+	}
+
+	QMainWindow::closeEvent(event);
+}
+
+
+void MainWindow::on_radioButton_msdf_clicked()
+{
+	ui->widget_view->setViewMode(ViewMode::MSDF);
+}
+
+
+void MainWindow::on_radioButton_rendered_clicked()
+{
+	ui->widget_view->setViewMode(ViewMode::Rendered);
+
+}
+
+
+void MainWindow::on_pushButton_save_clicked()
+{
+	QString path = saveMSDF();
+
 }
 
